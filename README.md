@@ -40,13 +40,7 @@ Kéo thanh thông báo xuống → nhấn nút Edit (bút chì) → tìm **"USB 
 
 ## Demo
 
-**Thêm tile vào Quick Settings:**
-
-<video src="media/setting.mp4" controls width="320"></video>
-
-**Toggle USB Debugging:**
-
-<video src="media/use.mp4" controls width="320"></video>
+![Demo](media/howtouse.gif)
 
 ## Sử dụng
 

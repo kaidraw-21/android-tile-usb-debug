@@ -52,58 +52,36 @@ object DynamicActionExecutor {
 
     // ── Write state ─────────────────────────────────────────────
 
-    fun setState(actionId: String, resolver: ContentResolver, targetOn: Boolean) {
+    fun setState(actionId: String, resolver: ContentResolver, targetOn: Boolean,
+                 visited: MutableSet<String> = mutableSetOf()) {
+        if (!visited.add(actionId)) {
+            Log.d(TAG, "setState($actionId) skipped — already visited")
+            return
+        }
         val action = ActionRegistry.getAction(actionId) ?: return
-        setState(action, resolver, targetOn)
+        setState(action, resolver, targetOn, visited)
     }
 
-    fun setState(action: RemoteAction, resolver: ContentResolver, targetOn: Boolean) {
+    fun setState(action: RemoteAction, resolver: ContentResolver, targetOn: Boolean,
+                 visited: MutableSet<String> = mutableSetOf()) {
         Log.d(TAG, "setState(${action.id}, on=$targetOn)")
+        visited.add(action.id)
 
-        if (targetOn) {
-            // Auto-ON parent chain: if this is a child, ensure parent is on first
-            val parentId = ActionRegistry.getParentId(action.id)
-            if (parentId != null) {
-                val parent = ActionRegistry.getAction(parentId)
-                if (parent != null && !getState(parent, resolver)) {
-                    Log.d(TAG, "auto-enabling parent ${parent.id} for child ${action.id}")
-                    setState(parent, resolver, true)
-                }
-            }
+        // Custom handler (e.g. DEVELOPER_MODE special logic)
+        if (action.customHandler != null) {
+            handleCustom(action, resolver, targetOn)
+            return
         }
 
-        // Custom handlers for complex logic
-        if (action.customHandler != null) {
-            if (!targetOn) cacheAndCascadeOffChildren(action, resolver)
-            handleCustom(action, resolver, targetOn)
-            if (targetOn) restoreCachedChildren(action, resolver)
+        // Cache action (e.g. Accessibility — save/restore string value)
+        if (action.cacheKey != null) {
+            handleCacheAction(action, resolver, targetOn)
             return
         }
 
         // Side effects
         val effects = if (targetOn) action.sideEffects?.safeOnEnable else action.sideEffects?.safeOnDisable
         effects?.forEach { writeSetting(it, resolver) }
-
-        // Dependencies
-        if (targetOn) {
-            action.safeDependencies.forEach { depId ->
-                val dep = ActionRegistry.getAction(depId)
-                if (dep != null && !getState(dep, resolver)) {
-                    setState(dep, resolver, true)
-                }
-            }
-        }
-
-        // Cache/restore for actions with cacheKey (e.g. Accessibility)
-        if (action.cacheKey != null) {
-            if (!targetOn) cacheAndCascadeOffChildren(action, resolver)
-            handleCacheAction(action, resolver, targetOn)
-            if (targetOn) restoreCachedChildren(action, resolver)
-            return
-        }
-
-        // Cascade OFF children BEFORE writing parent off (snapshot while still readable)
-        if (!targetOn) cacheAndCascadeOffChildren(action, resolver)
 
         // Main setting
         writeValue(action.safeSettingType, action.safeSettingKey, action.safeValueType,
@@ -114,80 +92,32 @@ object DynamicActionExecutor {
             writeValue(action.safeSettingType, ls.key, ls.valueType,
                 if (targetOn) ls.onValue else ls.offValue, resolver)
         }
-
-        // Restore cached children AFTER parent is on
-        if (targetOn) restoreCachedChildren(action, resolver)
     }
 
-    // ── Children cascade helpers ────────────────────────────────
-
-    private const val CHILDREN_STATE_PREFIX = "children_state_"
-
-    /** Snapshot which children are ON, then turn them all OFF */
-    private fun cacheAndCascadeOffChildren(parent: RemoteAction, resolver: ContentResolver) {
-        if (parent.safeChildren.isEmpty()) return
-        val onChildIds = parent.safeChildren
-            .filter { getState(it, resolver) }
-            .map { it.id }
-        // Persist so it survives process death
-        PrefsManager.tileRuntime.edit()
-            .putStringSet("$CHILDREN_STATE_PREFIX${parent.id}", onChildIds.toSet())
-            .apply()
-        Log.d(TAG, "cached children state for ${parent.id}: $onChildIds")
-        // Now cascade OFF
-        parent.safeChildren.forEach { child ->
-            if (child.id in onChildIds) {
-                Log.d(TAG, "cascade OFF child ${child.id} (parent=${parent.id})")
-                setState(child, resolver, false)
-            }
-        }
-    }
-
-    /** Restore only the children that were ON before parent was turned off */
-    private fun restoreCachedChildren(parent: RemoteAction, resolver: ContentResolver) {
-        if (parent.safeChildren.isEmpty()) return
-        val key = "$CHILDREN_STATE_PREFIX${parent.id}"
-        val cached = PrefsManager.tileRuntime.getStringSet(key, null)
-        if (cached.isNullOrEmpty()) return
-        Log.d(TAG, "restoring children for ${parent.id}: $cached")
-        parent.safeChildren.forEach { child ->
-            if (child.id in cached && !getState(child, resolver)) {
-                Log.d(TAG, "restore ON child ${child.id} (parent=${parent.id})")
-                setState(child, resolver, true)
-            }
-        }
-        // Clear cache after restore
-        PrefsManager.tileRuntime.edit().remove(key).apply()
-    }
-
-    fun toggleAll(actionIds: List<String>, resolver: ContentResolver, context: Context) {
+    fun toggleAll(actionIds: List<String>, resolver: ContentResolver, context: Context, targetOn: Boolean) {
         if (actionIds.isEmpty()) return
-        val allOn = actionIds.all { getState(it, resolver) }
-        val targetOn = !allOn
-        Log.d(TAG, "toggleAll(ids=$actionIds, allOn=$allOn, target=$targetOn)")
+        Log.d(TAG, "toggleAll(ids=$actionIds, targetOn=$targetOn)")
 
-        // Collect all affected action IDs (including dependencies & side effects)
+        // Each action is toggled independently — visited guards against double-write
+        // (e.g. if same setting appears via multiple paths)
+        val visited = mutableSetOf<String>()
+        actionIds.forEach { setState(it, resolver, targetOn, visited) }
+
+        // Collect affected IDs for tile refresh
         val affected = mutableSetOf<String>()
         affected.addAll(actionIds)
-
         actionIds.forEach { id ->
-            val action = ActionRegistry.getAction(id) ?: return@forEach
-            affected.addAll(action.safeDependencies)
             affected.addAll(ActionRegistry.getDescendantIds(id))
-            // Also include parent chain
             var pid = ActionRegistry.getParentId(id)
-            while (pid != null) {
-                affected.add(pid)
-                pid = ActionRegistry.getParentId(pid)
+            while (pid != null) { affected.add(pid!!); pid = ActionRegistry.getParentId(pid!!) }
+            val remoteAction = ActionRegistry.getAction(id)
+            if (remoteAction != null) {
+                remoteAction.safeLinkedSettings.forEach { ls -> affected.add(ls.key) }
+                remoteAction.sideEffects?.safeOnEnable?.forEach { affected.add(it.key) }
+                remoteAction.sideEffects?.safeOnDisable?.forEach { affected.add(it.key) }
             }
-            action.safeLinkedSettings.forEach { ls -> affected.add(ls.key) }
-            action.sideEffects?.safeOnEnable?.forEach { affected.add(it.key) }
-            action.sideEffects?.safeOnDisable?.forEach { affected.add(it.key) }
         }
 
-        actionIds.forEach { setState(it, resolver, targetOn) }
-
-        // Only refresh tiles that are affected by the changed actions
         TileConfigRepo.requestRefreshAffectedTiles(context, affected)
     }
 
@@ -227,23 +157,11 @@ object DynamicActionExecutor {
     private fun handleCustom(action: RemoteAction, resolver: ContentResolver, targetOn: Boolean) {
         when (action.customHandler) {
             "DEVELOPER_MODE" -> {
-                if (!targetOn) {
-                    val usbWasOn = Settings.Global.getInt(resolver, "adb_enabled", 0) == 1
-                    PrefsManager.setCachedUsbBeforeDevOff(usbWasOn)
-                    Settings.Global.putInt(resolver, "adb_enabled", 0)
-                    Settings.Global.putInt(resolver, action.safeSettingKey, 0)
-                } else {
-                    Settings.Global.putInt(resolver, action.safeSettingKey, 1)
-                    val restore = PrefsManager.getCachedUsbBeforeDevOff()
-                    if (restore == true) {
-                        Settings.Global.putInt(resolver, "adb_enabled", 1)
-                    }
-                    PrefsManager.setCachedUsbBeforeDevOff(null)
-                }
+                // Only write the developer mode setting itself — no cascade to children
+                Settings.Global.putInt(resolver, action.safeSettingKey, if (targetOn) 1 else 0)
             }
             else -> {
                 Log.w(TAG, "Unknown customHandler: ${action.customHandler}")
-                // Fallback to generic write
                 writeValue(action.safeSettingType, action.safeSettingKey, action.safeValueType,
                     if (targetOn) action.safeOnValue else action.safeOffValue, resolver)
             }

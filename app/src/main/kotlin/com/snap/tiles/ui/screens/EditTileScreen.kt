@@ -69,7 +69,6 @@ fun EditTileScreen(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SectionHeader(stringResource(R.string.section_label))
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.tile_label_hint), fontSize = 11.sp, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f), fontWeight = FontWeight.Medium)
                     TextField(value = label, onValueChange = { label = it }, modifier = Modifier.fillMaxWidth(),
                         textStyle = LocalTextStyle.current.copy(fontWeight = FontWeight.SemiBold, fontSize = 20.sp),
                         colors = TextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,

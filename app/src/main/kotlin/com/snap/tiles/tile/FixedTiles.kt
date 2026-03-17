@@ -34,16 +34,18 @@ abstract class FixedTileBase(
 
     override fun onClick() {
         Log.d(tag, "onClick()")
-        val current = DynamicActionExecutor.getState(actionId, contentResolver)
-        val target = !current
-        // Optimistic UI
+        val currentState = qsTile?.state ?: return
+        val targetOn = currentState != Tile.STATE_ACTIVE
+        Log.d(tag, "onClick: currentState=$currentState, targetOn=$targetOn")
+
+        // Optimistic UI — flip immediately
         qsTile?.apply {
-            state = if (target) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+            state = if (targetOn) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
             updateTile()
         }
+
         scope.launch {
-            DynamicActionExecutor.setState(actionId, contentResolver, target)
-            // Collect affected IDs: this action + its dependencies
+            DynamicActionExecutor.setState(actionId, contentResolver, targetOn)
             val affected = mutableSetOf(actionId)
             val remoteAction = ActionRegistry.getAction(actionId)
             if (remoteAction != null) {

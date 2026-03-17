@@ -221,7 +221,19 @@ private fun CustomTileSlotRow(config: TileConfig, slotInfo: CustomSlotInfo?, has
         }
         if (hasActions) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(slotLabel, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                val customLabel = config.label.takeIf { it.isNotBlank() && it != slotLabel }
+                Text(
+                    text = customLabel ?: slotLabel,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+                if (customLabel != null) {
+                    Text(
+                        text = slotLabel,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
                 @OptIn(ExperimentalLayoutApi::class)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     config.actions.forEach { action ->

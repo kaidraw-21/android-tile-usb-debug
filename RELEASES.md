@@ -1,5 +1,18 @@
 # Release Notes
 
+## v1.0.1 — 2026-03-17
+
+### Improvements
+- Optimistic UI update on tile tap — tile state flips instantly without waiting for IO
+- Fix: Custom tile actions now toggle correctly when tile contains both parent and child actions (e.g. DEVELOPER_MODE + USB_DEBUGGING in same slot)
+- Fix: `toggleAll` no longer double-writes settings when parent/child actions coexist in a tile
+- Simplified `setState` logic — removed cascade off/restore children behavior; each action is toggled independently
+- `onClick` now reads tile state from `qsTile.state` instead of re-reading ContentResolver
+- `targetOn` is passed directly into `toggleAll`, eliminating redundant settings reads
+- Home screen custom tile now shows edited label as title and slot name as subtitle (only when label differs)
+
+---
+
 ## v1.0.0 — 2026-03-17
 
 ### What's New

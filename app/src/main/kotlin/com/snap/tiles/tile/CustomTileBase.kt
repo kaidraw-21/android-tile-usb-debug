@@ -30,12 +30,19 @@ abstract class CustomTileBase(private val slotIndex: Int) : TileService() {
 
     override fun onClick() {
         Log.d(tag, "onClick()")
-        val config = TileConfigRepo.get(slotIndex)
-        val actionIds = config.actionIds
-        Log.d(tag, "onClick: toggling ${actionIds.size} actions")
+        val currentState = qsTile?.state ?: return
+        val targetOn = currentState != Tile.STATE_ACTIVE
+        Log.d(tag, "onClick: currentState=$currentState, targetOn=$targetOn")
+
+        // Optimistic UI — flip immediately
+        qsTile?.apply {
+            state = if (targetOn) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+            updateTile()
+        }
+
+        val actionIds = TileConfigRepo.get(slotIndex).actionIds
         scope.launch {
-            DynamicActionExecutor.toggleAll(actionIds, contentResolver, applicationContext)
-            mainHandler.post { refreshTile() }
+            DynamicActionExecutor.toggleAll(actionIds, contentResolver, applicationContext, targetOn)
         }
     }
 

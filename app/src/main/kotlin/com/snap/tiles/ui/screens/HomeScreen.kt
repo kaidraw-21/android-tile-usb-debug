@@ -10,6 +10,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -42,27 +43,41 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import com.snap.tiles.R
 import com.snap.tiles.data.Action
 import com.snap.tiles.data.CustomSlotInfo
 import com.snap.tiles.data.FixedTileInfo
 import com.snap.tiles.data.PrefsManager
 import com.snap.tiles.data.TileConfig
 import com.snap.tiles.data.TileConfigRepo
+import com.snap.tiles.float.FloatingTileService
 import com.snap.tiles.service.FloatingButtonService
 import com.snap.tiles.ui.theme.Success
-import com.snap.tiles.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(onEditSlot: (Int) -> Unit) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scrollState = rememberScrollState()
-    var hasWriteSecure by remember { mutableStateOf(false) }
-    var tiles by remember { mutableStateOf(listOf<TileConfig>()) }
 
-    LaunchedEffect(Unit) {
-        hasWriteSecure = checkWriteSecureSettings(context.contentResolver)
-        tiles = (1..TileConfigRepo.SLOT_COUNT).map { TileConfigRepo.get(it) }
+    var hasWriteSecure by remember { mutableStateOf(false) }
+    var hasOverlay by remember { mutableStateOf(false) }
+    var tiles by remember { mutableStateOf(listOf<TileConfig>()) }
+    var isFloatEnabled by remember { mutableStateOf(PrefsManager.isFloatVisible()) }
+
+    // Recheck permissions + float state on every resume
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            hasWriteSecure = checkWriteSecureSettings(context.contentResolver)
+            hasOverlay = Settings.canDrawOverlays(context)
+            tiles = (1..TileConfigRepo.SLOT_COUNT).map { TileConfigRepo.get(it) }
+            // If user came back from overlay permission settings
+            if (PrefsManager.isFloatVisible() && hasOverlay) {
+                isFloatEnabled = true
+                FloatingTileService.start(context)
+            }
+        }
     }
 
     Scaffold { padding ->
@@ -72,13 +87,46 @@ fun HomeScreen(onEditSlot: (Int) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(32.dp)
         ) {
             if (!hasWriteSecure) PermissionRequiredBanner()
-            PermissionsSection(hasWriteSecure, onRefresh = {
-                hasWriteSecure = checkWriteSecureSettings(context.contentResolver)
-                tiles = (1..TileConfigRepo.SLOT_COUNT).map { TileConfigRepo.get(it) }
-            })
+            PermissionsSection(
+                hasWriteSecure = hasWriteSecure,
+                showOverlay = isFloatEnabled,
+                hasOverlay = hasOverlay,
+                onRefresh = {
+                    hasWriteSecure = checkWriteSecureSettings(context.contentResolver)
+                    hasOverlay = Settings.canDrawOverlays(context)
+                    tiles = (1..TileConfigRepo.SLOT_COUNT).map { TileConfigRepo.get(it) }
+                }
+            )
             FloatingButtonSection()
             FixedTilesSection(context)
             CustomTilesSection(tiles, onEditSlot)
+            FloatingTileSection(
+                isEnabled = isFloatEnabled,
+                hasOverlayPermission = hasOverlay,
+                tiles = tiles,
+                onToggle = { newEnabled ->
+                    if (newEnabled) {
+                        if (!Settings.canDrawOverlays(context)) {
+                            // Request permission first — save intent so we resume correctly
+                            PrefsManager.setFloatVisible(true)
+                            isFloatEnabled = true
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}")
+                            )
+                            context.startActivity(intent)
+                        } else {
+                            PrefsManager.setFloatVisible(true)
+                            isFloatEnabled = true
+                            FloatingTileService.start(context)
+                        }
+                    } else {
+                        PrefsManager.setFloatVisible(false)
+                        isFloatEnabled = false
+                        FloatingTileService.stop(context)
+                    }
+                }
+            )
         }
     }
 }
@@ -102,29 +150,79 @@ private fun PermissionRequiredBanner() {
 }
 
 @Composable
-private fun PermissionsSection(hasWriteSecure: Boolean, onRefresh: () -> Unit) {
+private fun PermissionsSection(
+    hasWriteSecure: Boolean,
+    showOverlay: Boolean,
+    hasOverlay: Boolean,
+    onRefresh: () -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SectionHeader(stringResource(R.string.section_permissions))
-        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest), shape = RoundedCornerShape(16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.weight(1f)) {
-                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if (hasWriteSecure) Success else MaterialTheme.colorScheme.error))
-                    Text(stringResource(R.string.permission_write_secure), fontWeight = FontWeight.Medium, fontSize = 15.sp)
-                }
-                if (!hasWriteSecure) {
-                    FilledTonalButton(
-                        onClick = onRefresh,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(stringResource(R.string.btn_refresh_permission), fontSize = 12.sp)
-                    }
-                } else {
-                    Icon(Icons.Default.CheckCircle, null, tint = Success.copy(alpha = 0.5f), modifier = Modifier.size(24.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column {
+                PermissionRow(
+                    label = stringResource(R.string.permission_write_secure),
+                    isGranted = hasWriteSecure,
+                    showRefresh = !hasWriteSecure,
+                    onRefresh = onRefresh
+                )
+                if (showOverlay) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f),
+                        modifier = Modifier.padding(horizontal = 20.dp)
+                    )
+                    PermissionRow(
+                        label = stringResource(R.string.permission_overlay),
+                        isGranted = hasOverlay,
+                        showRefresh = false,
+                        onRefresh = {}
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PermissionRow(
+    label: String,
+    isGranted: Boolean,
+    showRefresh: Boolean,
+    onRefresh: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(if (isGranted) Success else MaterialTheme.colorScheme.error))
+            Text(label, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+        }
+        if (showRefresh) {
+            FilledTonalButton(
+                onClick = onRefresh,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier.height(32.dp)
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.btn_refresh_permission), fontSize = 12.sp)
+            }
+        } else {
+            Icon(
+                Icons.Default.CheckCircle, null,
+                tint = if (isGranted) Success.copy(alpha = 0.5f) else MaterialTheme.colorScheme.error.copy(alpha = 0.5f),
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 }
@@ -456,6 +554,241 @@ fun SectionHeader(title: String) {
         HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
     }
 }
+
+// ── Floating Tile Section ─────────────────────────────────────────────────
+
+@Composable
+private fun FloatingTileSection(
+    isEnabled: Boolean,
+    hasOverlayPermission: Boolean,
+    tiles: List<TileConfig>,
+    onToggle: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+
+    var selectedTileId by remember { mutableStateOf(PrefsManager.getFloatTileId()) }
+    var selectedIconIndex by remember { mutableStateOf(PrefsManager.getFloatIconIndex()) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SectionHeader(stringResource(R.string.section_floating_tile))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column {
+                // Header row with switch
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier.size(36.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isEnabled && hasOverlayPermission)
+                            MaterialTheme.colorScheme.primaryContainer
+                        else
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                painter = painterResource(
+                                    FloatingTileService.FLOAT_ICONS.getOrElse(selectedIconIndex) { FloatingTileService.FLOAT_ICONS[0] }
+                                ),
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = if (isEnabled && hasOverlayPermission)
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.float_tile_title),
+                            fontWeight = FontWeight.Bold, fontSize = 16.sp
+                        )
+                        Text(
+                            stringResource(R.string.float_tile_desc),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                    Switch(
+                        checked = isEnabled,
+                        onCheckedChange = onToggle,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary,
+                            uncheckedThumbColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            uncheckedBorderColor = Color.Transparent
+                        ),
+                        modifier = Modifier.height(24.dp)
+                    )
+                }
+
+                // Expanded config — only when ON and permission granted
+                if (isEnabled && hasOverlayPermission) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f),
+                        modifier = Modifier.padding(horizontal = 20.dp)
+                    )
+                    FloatTileSelector(
+                        selectedTileId = selectedTileId,
+                        tiles = tiles,
+                        onSelect = { id ->
+                            selectedTileId = id
+                            PrefsManager.setFloatTileId(id)
+                            FloatingTileService.refresh(context)
+                        }
+                    )
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f),
+                        modifier = Modifier.padding(horizontal = 20.dp)
+                    )
+                    FloatIconSelector(
+                        selectedIndex = selectedIconIndex,
+                        onSelect = { index ->
+                            selectedIconIndex = index
+                            PrefsManager.setFloatIconIndex(index)
+                            FloatingTileService.stop(context)
+                            FloatingTileService.start(context)
+                        }
+                    )
+                } else if (isEnabled && !hasOverlayPermission) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f),
+                        modifier = Modifier.padding(horizontal = 20.dp)
+                    )
+                    Text(
+                        stringResource(R.string.float_need_permission),
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FloatTileSelector(
+    selectedTileId: String,
+    tiles: List<TileConfig>,
+    onSelect: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            stringResource(R.string.float_select_tile),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 0.8.sp
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Fixed tiles
+            TileConfigRepo.fixedTiles.forEach { info ->
+                val id = "FIXED_${info.action.name}"
+                val isSelected = selectedTileId == id
+                TileChip(
+                    label = stringResource(info.labelRes),
+                    isSelected = isSelected,
+                    onClick = { onSelect(id) }
+                )
+            }
+            // Custom tiles
+            tiles.forEach { config ->
+                val slotInfo = TileConfigRepo.customSlots.firstOrNull { it.slotIndex == config.slotIndex }
+                val id = "SLOT_${config.slotIndex}"
+                val isSelected = selectedTileId == id
+                val label = config.label.takeIf { it.isNotBlank() }
+                    ?: slotInfo?.let { stringResource(it.labelRes) }
+                    ?: "Slot ${config.slotIndex}"
+                TileChip(
+                    label = label,
+                    isSelected = isSelected,
+                    onClick = { onSelect(id) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TileChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+        else MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = if (isSelected) Modifier
+        else Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+    ) {
+        Text(
+            label,
+            fontSize = 13.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+    }
+}
+
+@Composable
+private fun FloatIconSelector(selectedIndex: Int, onSelect: (Int) -> Unit) {
+    Column(
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            stringResource(R.string.float_select_icon),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 0.8.sp
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FloatingTileService.FLOAT_ICONS.forEachIndexed { index, iconRes ->
+                val isSelected = selectedIndex == index
+                Surface(
+                    onClick = { onSelect(index) },
+                    modifier = Modifier.size(40.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    border = if (isSelected) null
+                    else androidx.compose.foundation.BorderStroke(
+                        1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            painter = painterResource(iconRes),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 private fun checkWriteSecureSettings(resolver: ContentResolver): Boolean {
     return runCatching {

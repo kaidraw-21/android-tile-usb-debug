@@ -135,6 +135,26 @@ object PrefsManager {
         tileRuntime.edit().putString(KEY_SAVED_A11Y, value).apply()
     }
 
+    // Float tile ID: "FIXED_USB_DEBUGGING", "FIXED_DEVELOPER_MODE", "FIXED_ACCESSIBILITY", "SLOT_1"…"SLOT_5"
+    const val KEY_FLOAT_TILE_ID = "float_tile_id"
+    const val DEFAULT_FLOAT_TILE_ID = "FIXED_USB_DEBUGGING"
+    const val KEY_FLOAT_ICON_INDEX = "float_icon_index"
+
+    fun getFloatTileId(): String =
+        floatConfig.getString(KEY_FLOAT_TILE_ID, DEFAULT_FLOAT_TILE_ID) ?: DEFAULT_FLOAT_TILE_ID
+
+    fun setFloatTileId(id: String) {
+        Log.d(TAG, "setFloatTileId($id)")
+        floatConfig.edit().putString(KEY_FLOAT_TILE_ID, id).apply()
+    }
+
+    fun getFloatIconIndex(): Int = floatConfig.getInt(KEY_FLOAT_ICON_INDEX, 0)
+
+    fun setFloatIconIndex(index: Int) {
+        Log.d(TAG, "setFloatIconIndex($index)")
+        floatConfig.edit().putInt(KEY_FLOAT_ICON_INDEX, index).apply()
+    }
+
     fun isFloatVisible(): Boolean {
         val result = floatConfig.getBoolean(KEY_SHOW_FLOAT, false)
         Log.d(TAG, "isFloatVisible() -> $result")

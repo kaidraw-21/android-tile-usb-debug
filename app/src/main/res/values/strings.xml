@@ -74,6 +74,15 @@
     <string name="float_notif_title">Floating Button active</string>
     <string name="float_notif_text">Long-press to open Snap Tiles • tap to toggle</string>
 
+    <!-- Floating tile section -->
+    <string name="section_floating_tile">FLOATING TILE</string>
+    <string name="float_tile_title">Floating Tile Button</string>
+    <string name="float_tile_desc">Draggable overlay button on screen</string>
+    <string name="permission_overlay">SYSTEM_ALERT_WINDOW</string>
+    <string name="float_need_permission">Overlay permission required. Tap switch to request.</string>
+    <string name="float_select_tile">Select Tile</string>
+    <string name="float_select_icon">Select Icon</string>
+
     <!-- Action descriptions -->
     <string name="action_desc_usb_debugging">ADB mode status tile</string>
     <string name="action_desc_developer_mode">Toggle developer options</string>

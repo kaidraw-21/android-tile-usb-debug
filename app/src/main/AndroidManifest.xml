@@ -110,6 +110,16 @@
             </intent-filter>
         </service>
 
+        <!-- Floating overlay tile service -->
+        <service
+            android:name="com.snap.tiles.float.FloatingTileService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="floating_tile_overlay" />
+        </service>
+
         <service
             android:name="com.snap.tiles.service.FloatingButtonService"
             android:foregroundServiceType="specialUse"

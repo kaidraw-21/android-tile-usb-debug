@@ -1,5 +1,8 @@
 package com.snap.tiles.ui.screens
 
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
@@ -9,7 +12,8 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
-import androidx.core.graphics.drawable.IconCompat
+import com.snap.tiles.ui.buildShortcutIcon
+import com.snap.tiles.widget.TileWidget
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -23,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
@@ -129,6 +134,7 @@ fun HomeScreen(onEditSlot: (Int) -> Unit) {
                 }
             )
             ShortcutSection(tiles = tiles)
+            WidgetSection(tiles = tiles)
         }
     }
 }
@@ -678,11 +684,13 @@ private fun FloatSizeSelector(selectedSize: String, onSelect: (String) -> Unit) 
 
 // ── Shortcut Section ──────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ShortcutSection(tiles: List<TileConfig>) {
     val context = LocalContext.current
     val slotInfoMap = remember { TileConfigRepo.customSlots.associateBy { it.slotIndex } }
     val isSupported = remember { ShortcutManagerCompat.isRequestPinShortcutSupported(context) }
+    var showPicker by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SectionHeader(stringResource(R.string.section_shortcuts))
@@ -691,102 +699,318 @@ private fun ShortcutSection(tiles: List<TileConfig>) {
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
             shape = RoundedCornerShape(16.dp)
         ) {
-            Column {
-                if (!isSupported) {
-                    Text(
-                        stringResource(R.string.shortcut_not_supported),
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
-                    )
-                } else {
-                    Text(
-                        stringResource(R.string.shortcut_desc),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 4.dp)
-                    )
-                    tiles.forEachIndexed { index, config ->
-                        val slotInfo = slotInfoMap[config.slotIndex] ?: return@forEachIndexed
-                        val label = config.label.takeIf { it.isNotBlank() }
-                            ?: stringResource(slotInfo.labelRes)
-                        ShortcutSlotRow(
-                            label = label,
-                            slotInfo = slotInfo,
-                            hasActions = config.actions.isNotEmpty(),
-                            onAddToHomeScreen = {
-                                val shortcutIntent = Intent(context, ShortcutActivity::class.java).apply {
-                                    action = Intent.ACTION_VIEW
-                                    putExtra("slot_index", config.slotIndex)
-                                }
-                                val shortcut = ShortcutInfoCompat.Builder(
-                                    context, "shortcut_slot_${config.slotIndex}"
-                                )
-                                    .setShortLabel(label)
-                                    .setIcon(IconCompat.createWithResource(context, slotInfo.iconRes))
-                                    .setIntent(shortcutIntent)
-                                    .build()
-                                ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
-                            }
-                        )
-                        if (index < tiles.lastIndex) {
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f),
-                                modifier = Modifier.padding(horizontal = 20.dp)
+            if (!isSupported) {
+                Text(
+                    stringResource(R.string.shortcut_not_supported),
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier.size(36.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.shortcut_title),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Text(
+                            stringResource(R.string.shortcut_desc),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                    FilledTonalButton(
+                        onClick = { showPicker = true },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text(stringResource(R.string.btn_add), fontSize = 11.sp)
                     }
                 }
             }
         }
     }
+
+    if (showPicker) {
+        ShortcutPickerSheet(
+            tiles = tiles,
+            slotInfoMap = slotInfoMap,
+            onDismiss = { showPicker = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ShortcutPickerSheet(
+    tiles: List<TileConfig>,
+    slotInfoMap: Map<Int, CustomSlotInfo>,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val activeTiles = tiles.filter { it.actions.isNotEmpty() && it.enabled }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(
+            stringResource(R.string.shortcut_select_tile),
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+            modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp)
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f))
+
+        // Fixed tiles — always shown
+        TileConfigRepo.fixedTiles.forEach { info ->
+            val label = stringResource(info.labelRes)
+            val shortcutId = "shortcut_fixed_${info.action.name}"
+            ShortcutPickerRow(label = label, iconRes = info.iconRes) {
+                val intent = Intent(context, ShortcutActivity::class.java).apply {
+                    action = Intent.ACTION_VIEW
+                    putExtra("fixed_action", info.action.name)
+                    putExtra("shortcut_id", shortcutId)
+                    putExtra("shortcut_label", label)
+                    putExtra("shortcut_icon_res", info.iconRes)
+                }
+                val shortcut = ShortcutInfoCompat.Builder(context, shortcutId)
+                    .setShortLabel(label)
+                    .setIcon(buildShortcutIcon(context, info.iconRes))
+                    .setIntent(intent)
+                    .build()
+                ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
+                onDismiss()
+            }
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.08f),
+                modifier = Modifier.padding(start = 72.dp)
+            )
+        }
+
+        // Active custom tiles — only enabled ones with actions
+        activeTiles.forEach { config ->
+            val slotInfo = slotInfoMap[config.slotIndex] ?: return@forEach
+            val label = config.label.takeIf { it.isNotBlank() } ?: stringResource(slotInfo.labelRes)
+            val shortcutId = "shortcut_slot_${config.slotIndex}"
+            ShortcutPickerRow(label = label, iconRes = slotInfo.iconRes) {
+                val intent = Intent(context, ShortcutActivity::class.java).apply {
+                    action = Intent.ACTION_VIEW
+                    putExtra("slot_index", config.slotIndex)
+                    putExtra("shortcut_id", shortcutId)
+                    putExtra("shortcut_label", label)
+                    putExtra("shortcut_icon_res", slotInfo.iconRes)
+                }
+                val shortcut = ShortcutInfoCompat.Builder(context, shortcutId)
+                    .setShortLabel(label)
+                    .setIcon(buildShortcutIcon(context, slotInfo.iconRes))
+                    .setIntent(intent)
+                    .build()
+                ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
+                onDismiss()
+            }
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.08f),
+                modifier = Modifier.padding(start = 72.dp)
+            )
+        }
+
+        Spacer(Modifier.height(32.dp))
+    }
 }
 
 @Composable
-private fun ShortcutSlotRow(
-    label: String,
-    slotInfo: CustomSlotInfo,
-    hasActions: Boolean,
-    onAddToHomeScreen: () -> Unit
-) {
+private fun ShortcutPickerRow(label: String, iconRes: Int, onClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Surface(
             modifier = Modifier.size(36.dp),
             shape = RoundedCornerShape(10.dp),
-            color = if (hasActions) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceContainerHigh
+            color = MaterialTheme.colorScheme.primaryContainer
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    painter = painterResource(slotInfo.iconRes),
+                    painter = painterResource(iconRes),
                     contentDescription = label,
                     modifier = Modifier.size(20.dp),
-                    tint = if (hasActions) MaterialTheme.colorScheme.onPrimaryContainer
-                           else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
         }
-        Text(
-            text = label,
-            fontWeight = FontWeight.Medium,
-            fontSize = 15.sp,
-            modifier = Modifier.weight(1f),
-            color = if (hasActions) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-        )
-        FilledTonalButton(
-            onClick = onAddToHomeScreen,
-            enabled = hasActions,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-            modifier = Modifier.height(32.dp)
+        Text(label, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+    }
+}
+
+// ── Widget Section ────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WidgetSection(tiles: List<TileConfig>) {
+    val context = LocalContext.current
+    val slotInfoMap = remember { TileConfigRepo.customSlots.associateBy { it.slotIndex } }
+    val isSupported = remember {
+        AppWidgetManager.getInstance(context).isRequestPinAppWidgetSupported
+    }
+    var showPicker by remember { mutableStateOf(false) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SectionHeader(stringResource(R.string.section_widgets))
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+            shape = RoundedCornerShape(16.dp)
         ) {
-            Text(stringResource(R.string.btn_add_to_home_screen), fontSize = 11.sp)
+            if (!isSupported) {
+                Text(
+                    stringResource(R.string.widget_not_supported),
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Surface(
+                        modifier = Modifier.size(36.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.widget_title),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Text(
+                            stringResource(R.string.widget_desc),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                    FilledTonalButton(
+                        onClick = { showPicker = true },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text(stringResource(R.string.btn_add), fontSize = 11.sp)
+                    }
+                }
+            }
         }
     }
+
+    if (showPicker) {
+        WidgetPickerSheet(
+            tiles = tiles,
+            slotInfoMap = slotInfoMap,
+            onDismiss = { showPicker = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WidgetPickerSheet(
+    tiles: List<TileConfig>,
+    slotInfoMap: Map<Int, CustomSlotInfo>,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val activeTiles = tiles.filter { it.actions.isNotEmpty() && it.enabled }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Text(
+            stringResource(R.string.widget_select_tile),
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+            modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 12.dp)
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f))
+
+        TileConfigRepo.fixedTiles.forEach { info ->
+            val label = stringResource(info.labelRes)
+            val tileId = "FIXED_${info.action.name}"
+            ShortcutPickerRow(label = label, iconRes = info.iconRes) {
+                pinWidget(context, tileId, label, info.iconRes)
+                onDismiss()
+            }
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.08f),
+                modifier = Modifier.padding(start = 72.dp)
+            )
+        }
+
+        activeTiles.forEach { config ->
+            val slotInfo = slotInfoMap[config.slotIndex] ?: return@forEach
+            val label = config.label.takeIf { it.isNotBlank() } ?: stringResource(slotInfo.labelRes)
+            val tileId = "SLOT_${config.slotIndex}"
+            ShortcutPickerRow(label = label, iconRes = slotInfo.iconRes) {
+                pinWidget(context, tileId, label, slotInfo.iconRes)
+                onDismiss()
+            }
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.08f),
+                modifier = Modifier.padding(start = 72.dp)
+            )
+        }
+
+        Spacer(Modifier.height(32.dp))
+    }
+}
+
+private fun pinWidget(context: Context, tileId: String, label: String, iconRes: Int) {
+    val manager = AppWidgetManager.getInstance(context)
+    val callbackIntent = Intent(context, TileWidget::class.java).apply {
+        action = TileWidget.ACTION_CONFIGURE
+        putExtra(TileWidget.EXTRA_TILE_ID, tileId)
+        putExtra(TileWidget.EXTRA_LABEL, label)
+        putExtra(TileWidget.EXTRA_ICON_RES, iconRes)
+    }
+    val callbackPi = PendingIntent.getBroadcast(
+        context,
+        System.currentTimeMillis().toInt(),
+        callbackIntent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+    )
+    manager.requestPinAppWidget(
+        ComponentName(context, TileWidget::class.java),
+        null,
+        callbackPi
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -870,3 +1094,4 @@ private fun A11yServiceChips(apps: List<A11yAppInfo>) {
         }
     }
 }
+

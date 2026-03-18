@@ -16,6 +16,7 @@ object PrefsManager {
     private const val PREFS_TILE_RUNTIME = "tile_prefs"
     private const val PREFS_FLOAT_CONFIG = "float_config"
     private const val PREFS_FLOAT_POS = "float_pos"
+    private const val PREFS_WIDGET = "widget_config"
 
     private const val KEY_SUFFIX_LABEL = "_label"
     private const val KEY_SUFFIX_ACTIONS = "_actions"
@@ -197,5 +198,36 @@ object PrefsManager {
     fun setButtonSize(size: String) {
         Log.d(TAG, "setButtonSize(size=$size)")
         floatConfig.edit().putString(KEY_BUTTON_SIZE, size).apply()
+    }
+
+    // ── Widget config ──────────────────────────────────────────────────────────
+
+    val widgetPrefs: SharedPreferences by lazy {
+        appContext.getSharedPreferences(PREFS_WIDGET, Context.MODE_PRIVATE)
+    }
+
+    /** tileId format: "FIXED_USB_DEBUGGING" or "SLOT_1" */
+    fun saveWidgetConfig(widgetId: Int, tileId: String, label: String, iconRes: Int) {
+        widgetPrefs.edit()
+            .putString("tile_$widgetId", tileId)
+            .putString("label_$widgetId", label)
+            .putInt("icon_$widgetId", iconRes)
+            .apply()
+    }
+
+    /** Returns Triple(tileId, label, iconRes) or null if not configured */
+    fun getWidgetConfig(widgetId: Int): Triple<String, String, Int>? {
+        val tileId = widgetPrefs.getString("tile_$widgetId", null) ?: return null
+        val label = widgetPrefs.getString("label_$widgetId", null) ?: return null
+        val iconRes = widgetPrefs.getInt("icon_$widgetId", 0).takeIf { it != 0 } ?: return null
+        return Triple(tileId, label, iconRes)
+    }
+
+    fun deleteWidgetConfig(widgetId: Int) {
+        widgetPrefs.edit()
+            .remove("tile_$widgetId")
+            .remove("label_$widgetId")
+            .remove("icon_$widgetId")
+            .apply()
     }
 }

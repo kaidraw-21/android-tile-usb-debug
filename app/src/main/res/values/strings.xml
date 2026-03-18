@@ -85,8 +85,16 @@
 
     <!-- Shortcuts section -->
     <string name="section_shortcuts">SHORTCUTS</string>
-    <string name="shortcut_desc">Add a home screen shortcut to toggle a tile with one tap</string>
+    <string name="section_widgets">WIDGETS</string>
+    <string name="widget_title">Home Screen Widget</string>
+    <string name="widget_desc">Toggle a tile directly from your home screen</string>
+    <string name="widget_select_tile">Select a tile for widget</string>
+    <string name="widget_not_supported">Not supported by this launcher</string>
+    <string name="shortcut_title">Home Screen Shortcut</string>
+    <string name="shortcut_desc">Toggle a tile with one tap from your home screen</string>
+    <string name="shortcut_select_tile">Select a tile</string>
     <string name="btn_add_to_home_screen">Add to Home Screen</string>
+    <string name="btn_add">Add</string>
     <string name="shortcut_not_supported">Not supported by this launcher</string>
 
     <!-- Action descriptions -->

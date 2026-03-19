@@ -1,6 +1,15 @@
+<div align="center">
+
 # Snap Tiles
 
+<img src="media/ic_app_logo_round.webp" alt="App Logo" width="128"/>
+
+[![en](https://img.shields.io/badge/lang-en-red.svg)](README.md)
+[![vi](https://img.shields.io/badge/lang-vi-green.svg)](README.vi.md)
+
 Quick Settings tiles to toggle system settings on Android with a single tap — no need to open the Settings app.
+
+</div>
 
 ## Features
 
@@ -10,6 +19,12 @@ Quick Settings tiles to toggle system settings on Android with a single tap — 
 - **Smart Caching** — Remembers Accessibility services and USB state, restores on re-enable
 - **System Controls** — Stay Awake, Running Services, Force RTL Layout
 - **Advanced Debugging** — Profile GPU Rendering, Demo Mode, Animator Duration Scale
+
+## Latest Updates
+
+- **Home Screen Widgets & Shortcuts**: Implemented new home screen widgets and enhanced app shortcuts for quicker access to features.
+- **General Improvements**: Various updates and optimizations.
+- **New Release**: Version 1.0.2 (build 3) is now available.
 
 ## Screenshots
 
@@ -38,6 +53,17 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 ## ADB Setup
 
+### Enable Developer Options and USB Debugging
+
+Before proceeding, ensure you have Developer options and USB debugging enabled on your Android device.
+
+1.  **Enable Developer Options**:
+    *   Go to `Settings` > `About phone`.
+    *   Tap `Build number` 7 times until you see a message "You are now a developer!" or "Developer options enabled".
+2.  **Enable USB Debugging**:
+    *   Go to `Settings` > `System` > `Developer options` (or `Settings` > `Developer options`).
+    *   Turn on `USB debugging`.
+
 Grant the required permission once via ADB:
 
 ```bash
@@ -46,7 +72,8 @@ adb shell pm grant com.snap.tiles android.permission.WRITE_SECURE_SETTINGS
 
 Then pull down Quick Settings → Edit (pencil icon) → drag the tiles you want into your panel.
 
-### Notes
+## Notes
+
 - Permission `WRITE_SECURE_SETTINGS` is required once via ADB. No ADB needed after that.
 - No root required.
 - Fixed tiles are always enabled — no on/off switch.
